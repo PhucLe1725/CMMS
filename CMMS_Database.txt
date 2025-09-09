@@ -1,0 +1,312 @@
+
+-- Enable UUID extension for potential future use
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- Tenants table
+CREATE TABLE tenants (
+  tenant_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  tenant_name VARCHAR(100) NOT NULL UNIQUE,
+  description TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Asset Types table
+CREATE TABLE asset_types (
+  asset_type_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  type_name VARCHAR(50) NOT NULL UNIQUE,
+  description TEXT
+);
+
+-- Suppliers table
+CREATE TABLE suppliers (
+  supplier_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  supplier_name VARCHAR(100) NOT NULL,
+  contact_info TEXT
+);
+
+-- Users table
+CREATE TABLE users (
+  user_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  tenant_id BIGINT NOT NULL,
+  username VARCHAR(50) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  role VARCHAR(20) NOT NULL, -- e.g., 'admin', 'manager', 'technician'
+  email VARCHAR(100) NOT NULL UNIQUE,
+  full_name VARCHAR(100) NOT NULL,
+  is_active INTEGER DEFAULT 1,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id) ON DELETE CASCADE
+);
+CREATE INDEX idx_users_tenant_id ON users(tenant_id);
+
+-- Refresh Tokens table
+CREATE TABLE refreshtokens (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  token VARCHAR(512) NOT NULL UNIQUE,
+  user_id BIGINT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+CREATE INDEX idx_refreshtokens_id ON refreshtokens(id);
+CREATE INDEX idx_refreshtokens_token ON refreshtokens(token);
+
+-- Locations table
+CREATE TABLE locations (
+  location_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  tenant_id BIGINT NOT NULL,
+  location_name VARCHAR(100) NOT NULL,
+  description TEXT,
+  parent_location_id BIGINT,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+  FOREIGN KEY (parent_location_id) REFERENCES locations(location_id)
+);
+CREATE INDEX idx_locations_tenant_id ON locations(tenant_id);
+
+-- Assets table
+CREATE TABLE assets (
+  asset_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  tenant_id BIGINT NOT NULL,
+  asset_name VARCHAR(100) NOT NULL,
+  asset_type_id BIGINT NOT NULL,
+  serial_number VARCHAR(50) NOT NULL,
+  location_id BIGINT NOT NULL,
+  purchase_date TIMESTAMP WITH TIME ZONE,
+  warranty_expiry TIMESTAMP WITH TIME ZONE,
+  status VARCHAR(20) NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+  FOREIGN KEY (asset_type_id) REFERENCES asset_types(asset_type_id),
+  FOREIGN KEY (location_id) REFERENCES locations(location_id)
+);
+CREATE INDEX idx_assets_tenant_id ON assets(tenant_id);
+CREATE INDEX idx_assets_location_id ON assets(location_id);
+CREATE INDEX idx_assets_asset_type_id ON assets(asset_type_id);
+
+-- Inventory table
+CREATE TABLE inventory (
+  part_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  tenant_id BIGINT NOT NULL,
+  part_name VARCHAR(100) NOT NULL,
+  part_number VARCHAR(50) NOT NULL UNIQUE,
+  quantity INTEGER NOT NULL,
+  min_quantity INTEGER NOT NULL,
+  location_id BIGINT NOT NULL,
+  unit_cost DECIMAL(10, 2),
+  supplier_id BIGINT,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+  FOREIGN KEY (location_id) REFERENCES locations(location_id),
+  FOREIGN KEY (supplier_id) REFERENCES suppliers(supplier_id)
+);
+CREATE INDEX idx_inventory_tenant_id ON inventory(tenant_id);
+CREATE INDEX idx_inventory_part_number ON inventory(part_number);
+
+-- IoT Sensors table
+CREATE TABLE iot_sensors (
+  sensor_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  asset_id BIGINT NOT NULL,
+  sensor_type VARCHAR(50) NOT NULL,
+  data_value JSONB,
+  recorded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (asset_id) REFERENCES assets(asset_id)
+);
+
+-- Preventive Maintenance table
+CREATE TABLE preventive_maintenance (
+  pm_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  asset_id BIGINT NOT NULL,
+  task_description TEXT NOT NULL,
+  frequency_type VARCHAR(20) NOT NULL,
+  frequency_interval INTEGER NOT NULL,
+  next_due_date TIMESTAMP WITH TIME ZONE NOT NULL,
+  last_completed TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (asset_id) REFERENCES assets(asset_id)
+);
+CREATE INDEX idx_preventive_maintenance_asset_id ON preventive_maintenance(asset_id);
+
+-- Work Orders table
+CREATE TABLE work_orders (
+  work_order_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  tenant_id BIGINT NOT NULL,
+  asset_id BIGINT NOT NULL,
+  title VARCHAR(100) NOT NULL,
+  description TEXT,
+  status VARCHAR(20) NOT NULL,
+  priority VARCHAR(20) NOT NULL,
+  assigned_to BIGINT,
+  created_by BIGINT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  scheduled_date TIMESTAMP WITH TIME ZONE,
+  completed_at TIMESTAMP WITH TIME ZONE,
+  estimated_hours DECIMAL(5, 2),
+  actual_hours DECIMAL(5, 2),
+  FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+  FOREIGN KEY (asset_id) REFERENCES assets(asset_id),
+  FOREIGN KEY (assigned_to) REFERENCES users(user_id),
+  FOREIGN KEY (created_by) REFERENCES users(user_id)
+);
+CREATE INDEX idx_work_orders_tenant_id ON work_orders(tenant_id);
+CREATE INDEX idx_work_orders_asset_id ON work_orders(asset_id);
+CREATE INDEX idx_work_orders_status ON work_orders(status);
+
+-- Reports table
+CREATE TABLE reports (
+  report_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  tenant_id BIGINT NOT NULL,
+  report_type VARCHAR(50) NOT NULL,
+  generated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  data JSONB NOT NULL,
+  created_by BIGINT NOT NULL,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES users(user_id)
+);
+CREATE INDEX idx_reports_tenant_id ON reports(tenant_id);
+CREATE INDEX idx_reports_created_by ON reports(created_by);
+
+-- Documents table
+CREATE TABLE documents (
+  document_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  asset_id BIGINT,
+  work_order_id BIGINT,
+  file_name VARCHAR(100) NOT NULL,
+  file_path VARCHAR(255) NOT NULL,
+  uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (asset_id) REFERENCES assets(asset_id),
+  FOREIGN KEY (work_order_id) REFERENCES work_orders(work_order_id)
+);
+
+-- Maintenance History table
+CREATE TABLE maintenance_history (
+  history_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  work_order_id BIGINT,
+  asset_id BIGINT NOT NULL,
+  action TEXT NOT NULL,
+  performed_by BIGINT NOT NULL,
+  performed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (asset_id) REFERENCES assets(asset_id),
+  FOREIGN KEY (work_order_id) REFERENCES work_orders(work_order_id),
+  FOREIGN KEY (performed_by) REFERENCES users(user_id)
+);
+CREATE INDEX idx_maintenance_history_asset_id ON maintenance_history(asset_id);
+
+-- Work Order Parts table
+CREATE TABLE work_order_parts (
+  work_order_id BIGINT NOT NULL,
+  part_id BIGINT NOT NULL,
+  quantity_used INTEGER NOT NULL,
+  PRIMARY KEY (work_order_id, part_id),
+  FOREIGN KEY (work_order_id) REFERENCES work_orders(work_order_id),
+  FOREIGN KEY (part_id) REFERENCES inventory(part_id)
+);
+
+-- Notifications table
+CREATE TABLE notifications (
+  notification_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  tenant_id BIGINT NOT NULL,
+  user_id BIGINT NOT NULL,
+  work_order_id BIGINT,
+  asset_id BIGINT,
+  title VARCHAR(100) NOT NULL,
+  message TEXT NOT NULL,
+  type VARCHAR(50) NOT NULL,
+  is_read BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+  FOREIGN KEY (work_order_id) REFERENCES work_orders(work_order_id) ON DELETE CASCADE,
+  FOREIGN KEY (asset_id) REFERENCES assets(asset_id) ON DELETE CASCADE
+);
+CREATE INDEX idx_notifications_tenant_id ON notifications(tenant_id);
+CREATE INDEX idx_notifications_user_id ON notifications(user_id);
+CREATE INDEX idx_notifications_work_order_id ON notifications(work_order_id);
+CREATE INDEX idx_notifications_asset_id ON notifications(asset_id);
+
+
+
+----------------------------------------SAMPLE DATA------------------------------------------------
+
+-- Insert Tenants
+INSERT INTO tenants (tenant_name, description, created_at) VALUES
+('Acme Manufacturing', 'Manufacturing plant for industrial equipment', '2025-08-12 11:00:00+07'),
+('Tech Solutions', 'IT service provider', '2025-08-12 11:00:00+07');
+
+-- Insert Asset Types
+INSERT INTO asset_types (type_name, description) VALUES
+('Compressor', 'Air compressors for industrial use'),
+('Server', 'Data center servers'),
+('Conveyor', 'Conveyor belts for assembly lines');
+
+-- Insert Suppliers
+INSERT INTO suppliers (supplier_name, contact_info) VALUES
+('Industrial Supplies Co.', 'contact@indsupply.com, +1-555-1234'),
+('Tech Parts Ltd.', 'sales@techparts.com, +1-555-5678');
+
+-- Insert Users (for Acme Manufacturing: tenant_id = 1, Tech Solutions: tenant_id = 2)
+INSERT INTO users (tenant_id, username, password_hash, role, email, full_name, is_active, created_at) VALUES
+(1, 'admin1', '$2b$10$examplehash1', 'admin', 'admin1@acme.com', 'Alice Admin', 1, '2025-08-12 11:00:00+07'),
+(1, 'manager1', '$2b$10$examplehash2', 'manager', 'manager1@acme.com', 'Bob Manager', 1, '2025-08-12 11:00:00+07'),
+(1, 'technician1', '$2b$10$examplehash3', 'technician', 'tech1@acme.com', 'Charlie Tech', 1, '2025-08-12 11:00:00+07'),
+(2, 'admin2', '$2b$10$examplehash4', 'admin', 'admin2@techsol.com', 'David Admin', 1, '2025-08-12 11:00:00+07'),
+(2, 'manager2', '$2b$10$examplehash5', 'manager', 'manager2@techsol.com', 'Eve Manager', 1, '2025-08-12 11:00:00+07'),
+(2, 'technician2', '$2b$10$examplehash6', 'technician', 'tech2@techsol.com', 'Frank Tech', 1, '2025-08-12 11:00:00+07');
+
+-- Insert Locations
+INSERT INTO locations (tenant_id, location_name, description, parent_location_id) VALUES
+(1, 'Main Factory', 'Main production facility for Acme', NULL),
+(1, 'Assembly Line 1', 'Assembly line in main factory', 1),
+(2, 'Data Center', 'Primary data center for Tech Solutions', NULL);
+
+-- Insert Assets
+INSERT INTO assets (tenant_id, asset_name, asset_type_id, serial_number, location_id, purchase_date, warranty_expiry, status, created_at, updated_at) VALUES
+(1, 'Main Compressor', 1, 'CMP123', 2, '2024-01-15', '2026-01-15', 'ACTIVE', '2025-08-12 11:00:00+07', '2025-08-12 11:00:00+07'),
+(1, 'Conveyor Belt A', 3, 'CVR456', 2, '2023-06-10', '2025-06-10', 'ACTIVE', '2025-08-12 11:00:00+07', '2025-08-12 11:00:00+07'),
+(2, 'Server Rack 1', 2, 'SRV789', 3, '2024-03-20', '2027-03-20', 'OUT_OF_SERVICE', '2025-08-12 11:00:00+07', '2025-08-12 11:00:00+07');
+
+-- Insert Inventory
+INSERT INTO inventory (tenant_id, part_name, part_number, quantity, min_quantity, location_id, unit_cost, supplier_id) VALUES
+(1, 'Compressor Filter', 'FLT001', 50, 10, 2, 25.50, 1),
+(2, 'Server Fan', 'FAN002', 20, 5, 3, 15.75, 2);
+
+-- Insert Work Orders
+INSERT INTO work_orders (tenant_id, asset_id, title, description, status, priority, assigned_to, created_by, created_at, scheduled_date, estimated_hours) VALUES
+(1, 1, 'Repair Main Compressor', 'Fix pressure valve issue', 'OPEN', 'HIGH', 3, 2, '2025-08-12 11:05:00+07', '2025-08-13 09:00:00+07', 4.0),
+(1, 2, 'Inspect Conveyor Belt', 'Routine inspection', 'OPEN', 'MEDIUM', 3, 2, '2025-08-12 11:10:00+07', '2025-08-14 10:00:00+07', 2.0),
+(2, 3, 'Replace Server Fan', 'Replace faulty fan in server rack', 'OPEN', 'HIGH', 6, 5, '2025-08-12 11:15:00+07', '2025-08-13 14:00:00+07', 3.0);
+
+-- Insert Work Order Parts
+INSERT INTO work_order_parts (work_order_id, part_id, quantity_used) VALUES
+(1, 1, 2),
+(3, 2, 1);
+
+-- Insert Maintenance History
+INSERT INTO maintenance_history (work_order_id, asset_id, action, performed_by, performed_at) VALUES
+(1, 1, 'Initial inspection completed', 3, '2025-08-12 11:20:00+07'),
+(3, 3, 'Diagnosed fan failure', 6, '2025-08-12 11:25:00+07');
+
+-- Insert Notifications (role-based with details)
+-- For Work Order 1 (Acme Manufacturing: Repair Main Compressor)
+INSERT INTO notifications (tenant_id, user_id, work_order_id, asset_id, title, message, type, is_read, created_at) VALUES
+(1, 1, 1, 1, 'Work Order: Repair Main Compressor', 'New work order created: Repair Main Compressor\nWork Order Details:\n- Title: Repair Main Compressor\n- Asset: Main Compressor\n- Priority: HIGH\n- Status: OPEN', 'WORK_ORDER', FALSE, '2025-08-12 11:05:00+07'), -- Admin
+(1, 2, 1, 1, 'Work Order: Repair Main Compressor', 'You created a new work order: Repair Main Compressor\nWork Order Details:\n- Title: Repair Main Compressor\n- Asset: Main Compressor\n- Priority: HIGH\n- Status: OPEN', 'WORK_ORDER', FALSE, '2025-08-12 11:05:00+07'), -- Manager (creator)
+(1, 3, 1, 1, 'Work Order: Repair Main Compressor', 'You have been assigned a new work order: Repair Main Compressor\nWork Order Details:\n- Title: Repair Main Compressor\n- Asset: Main Compressor\n- Priority: HIGH\n- Status: OPEN', 'WORK_ORDER', FALSE, '2025-08-12 11:05:00+07'); -- Technician (assigned)
+
+-- For Work Order 2 (Acme Manufacturing: Inspect Conveyor Belt)
+INSERT INTO notifications (tenant_id, user_id, work_order_id, asset_id, title, message, type, is_read, created_at) VALUES
+(1, 1, 2, 2, 'Work Order: Inspect Conveyor Belt', 'New work order created: Inspect Conveyor Belt\nWork Order Details:\n- Title: Inspect Conveyor Belt\n- Asset: Conveyor Belt A\n- Priority: MEDIUM\n- Status: OPEN', 'WORK_ORDER', FALSE, '2025-08-12 11:10:00+07'), -- Admin
+(1, 2, 2, 2, 'Work Order: Inspect Conveyor Belt', 'You created a new work order: Inspect Conveyor Belt\nWork Order Details:\n- Title: Inspect Conveyor Belt\n- Asset: Conveyor Belt A\n- Priority: MEDIUM\n- Status: OPEN', 'WORK_ORDER', FALSE, '2025-08-12 11:10:00+07'), -- Manager (creator)
+(1, 3, 2, 2, 'Work Order: Inspect Conveyor Belt', 'You have been assigned a new work order: Inspect Conveyor Belt\nWork Order Details:\n- Title: Inspect Conveyor Belt\n- Asset: Conveyor Belt A\n- Priority: MEDIUM\n- Status: OPEN', 'WORK_ORDER', FALSE, '2025-08-12 11:10:00+07'); -- Technician (assigned)
+
+-- For Work Order 3 (Tech Solutions: Replace Server Fan)
+INSERT INTO notifications (tenant_id, user_id, work_order_id, asset_id, title, message, type, is_read, created_at) VALUES
+(2, 4, 3, 3, 'Work Order: Replace Server Fan', 'New work order created: Replace Server Fan\nWork Order Details:\n- Title: Replace Server Fan\n- Asset: Server Rack 1\n- Priority: HIGH\n- Status: OPEN', 'WORK_ORDER', FALSE, '2025-08-12 11:15:00+07'), -- Admin
+(2, 5, 3, 3, 'Work Order: Replace Server Fan', 'You created a new work order: Replace Server Fan\nWork Order Details:\n- Title: Replace Server Fan\n- Asset: Server Rack 1\n- Priority: HIGH\n- Status: OPEN', 'WORK_ORDER', FALSE, '2025-08-12 11:15:00+07'), -- Manager (creator)
+(2, 6, 3, 3, 'Work Order: Replace Server Fan', 'You have been assigned a new work order: Replace Server Fan\nWork Order Details:\n- Title: Replace Server Fan\n- Asset: Server Rack 1\n- Priority: HIGH\n- Status: OPEN', 'WORK_ORDER', FALSE, '2025-08-12 11:15:00+07'); -- Technician (assigned)
+
+-- For Asset Status Update (Server Rack 1: OUT_OF_SERVICE)
+INSERT INTO notifications (tenant_id, user_id, work_order_id, asset_id, title, message, type, is_read, created_at) VALUES
+(2, 4, NULL, 3, 'Asset Update: Server Rack 1', 'Asset Server Rack 1 status updated to OUT_OF_SERVICE\nAsset Details:\n- Name: Server Rack 1\n- Serial Number: SRV789\n- Status: OUT_OF_SERVICE', 'ASSET', FALSE, '2025-08-12 11:20:00+07'), -- Admin
+(2, 5, NULL, 3, 'Asset Update: Server Rack 1', 'Asset Server Rack 1 status updated to OUT_OF_SERVICE\nAsset Details:\n- Name: Server Rack 1\n- Serial Number: SRV789\n- Status: OUT_OF_SERVICE', 'ASSET', FALSE, '2025-08-12 11:20:00+07'), -- Manager
+(2, 6, NULL, 3, 'Asset Update: Server Rack 1', 'Asset Server Rack 1 status updated to OUT_OF_SERVICE (Assigned to you)\nAsset Details:\n- Name: Server Rack 1\n- Serial Number: SRV789\n- Status: OUT_OF_SERVICE', 'ASSET', FALSE, '2025-08-12 11:20:00+07'); -- Technician (has work order)
+

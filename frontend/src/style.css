@@ -1,0 +1,41 @@
+/* Existing styles... */
+
+/* Loading state styles */
+body.page-loading {
+  cursor: wait;
+}
+
+body.page-loading * {
+  pointer-events: none;
+}
+
+/* Cải thiện scroll behavior */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Prevent content jumping */
+.container-fluid {
+  min-height: 100vh;
+}
+
+/* Smooth transitions for all interactive elements */
+button, .btn, .nav-link, .dropdown-item {
+  transition: all 0.2s ease;
+}
+
+/* Cải thiện table rendering */
+.table {
+  table-layout: fixed;
+}
+
+.table td, .table th {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Preload các font icons */
+.bi::before {
+  transition: all 0.2s ease;
+}
